@@ -1,0 +1,7 @@
+# Ignore folders and files in the api package
+api/node_modules
+api/dist
+
+# Ignore folders and files in the web package
+web/node_modules
+web/dist
