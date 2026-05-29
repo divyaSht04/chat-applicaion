@@ -1,0 +1,36 @@
+{
+  "name": "chat-app-monorepo",
+  "private": true,
+  "workspaces": [
+    "api",
+    "client"
+  ],
+  "devDependencies": {
+    "@commitlint/cli": "^21.0.1",
+    "@commitlint/config-conventional": "^21.0.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.5"
+  },
+  "scripts": {
+    "prepare": "husky",
+    "test": "echo \"No tests specified\" && exit 0"
+  },
+  "commitlint": {
+    "extends": [
+      "@commitlint/config-conventional"
+    ]
+  },
+  "lint-staged": {
+    "api/**/*.{ts,tsx}": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "client/**/*.{ts,tsx}": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "**/*.{json,css,md}": [
+      "prettier --write"
+    ]
+  }
+}

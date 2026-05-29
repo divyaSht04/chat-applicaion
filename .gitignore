@@ -5,3 +5,6 @@ api/dist
 # Ignore folders and files in the web package
 web/node_modules
 web/dist
+
+node_modules
+dist
