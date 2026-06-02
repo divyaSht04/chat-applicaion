@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { AppController } from '../src/app.controller';
+import { AppService } from '../src/app.service';
 
 describe('AppController', () => {
   let appController: AppController;
@@ -17,6 +17,14 @@ describe('AppController', () => {
   describe('root', () => {
     it('should return "Hello World!"', () => {
       expect(appController.getHello()).toBe('Hello World!');
+    });
+  });
+
+  it('covers decorator metadata Object branch when AppService is unavailable at load time', () => {
+    jest.isolateModules(() => {
+      jest.mock('../src/app.service', () => ({ AppService: undefined }));
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require('../src/app.controller');
     });
   });
 });

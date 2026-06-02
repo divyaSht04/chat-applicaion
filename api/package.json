@@ -48,6 +48,7 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.3",
+    "tslib": "^2.8.1",
     "uuid": "^14.0.0"
   },
   "devDependencies": {
@@ -91,15 +92,36 @@
       "json",
       "ts"
     ],
-    "rootDir": "src",
+    "rootDir": ".",
+    "roots": [
+      "<rootDir>/test"
+    ],
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
     "collectCoverageFrom": [
-      "**/*.(t|j)s"
+      "src/**/*.(t|j)s",
+      "!src/**/node_modules/**",
+      "!src/**/*.spec.ts",
+      "!src/**/main.ts",
+      "!src/**/database/migrations/**",
+      "!src/**/*.module.ts",
+      "!src/**/*.dto.ts",
+      "!src/**/*.entity.ts"
     ],
-    "coverageDirectory": "../coverage",
+    "coverageDirectory": "coverage",
+    "coverageThreshold": {
+      "global": {
+        "statements": 90,
+        "branches": 90,
+        "functions": 90,
+        "lines": 90
+      }
+    },
     "testEnvironment": "node"
   }
 }
