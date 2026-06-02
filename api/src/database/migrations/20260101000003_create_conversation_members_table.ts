@@ -17,7 +17,11 @@ export async function up(knex: Knex): Promise<void> {
     t.enu('status', ['pending', 'accepted', 'rejected', 'left', 'removed'])
       .notNullable()
       .defaultTo('pending');
-    t.integer('invited_by').references('id').inTable('users').onDelete('SET NULL').nullable();
+    t.integer('invited_by')
+      .references('id')
+      .inTable('users')
+      .onDelete('SET NULL')
+      .nullable();
     t.timestamp('joined_at').nullable();
     t.timestamp('created_at').defaultTo(knex.fn.now()).notNullable();
 

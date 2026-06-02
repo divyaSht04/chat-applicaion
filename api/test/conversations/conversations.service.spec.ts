@@ -4,8 +4,13 @@ import { ConversationsService } from '../../src/conversations/conversations.serv
 import { KNEX_TOKEN } from '../../src/database/database.providers';
 
 describe('ConversationsService', () => {
+  type KnexMock = jest.Mock & {
+    transaction: jest.Mock;
+    fn: { now: jest.Mock };
+  };
+
   let service: ConversationsService;
-  let mockKnex: jest.Mock;
+  let mockKnex: KnexMock;
 
   const mockConv = {
     id: 1,
@@ -29,7 +34,6 @@ describe('ConversationsService', () => {
     created_at: new Date(),
   };
 
-  // Build a chainable query builder where the named method is the terminal (returns a Promise)
   function chain(terminal: string, value: unknown) {
     const qb: Record<string, jest.Mock> = {
       join: jest.fn().mockReturnThis(),
@@ -47,11 +51,13 @@ describe('ConversationsService', () => {
   }
 
   beforeEach(async () => {
-    mockKnex = jest.fn();
-    mockKnex.transaction = jest.fn((cb: (trx: unknown) => Promise<unknown>) =>
-      cb(mockKnex),
-    );
-    mockKnex.fn = { now: jest.fn().mockReturnValue('NOW()') };
+    const base = jest.fn();
+    const trxFn = jest.fn((cb: (trx: unknown) => Promise<unknown>) => cb(base));
+    Object.assign(base, {
+      transaction: trxFn,
+      fn: { now: jest.fn().mockReturnValue('NOW()') },
+    });
+    mockKnex = base as KnexMock;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -65,7 +71,6 @@ describe('ConversationsService', () => {
 
   afterEach(() => jest.clearAllMocks());
 
-  // ── createDirect ──────────────────────────────────────────────────────────
   describe('createDirect', () => {
     it('returns existing conversation when DM already exists', async () => {
       const checkQb = chain('first', { id: 1 });
@@ -94,7 +99,6 @@ describe('ConversationsService', () => {
     });
   });
 
-  // ── createGroup ───────────────────────────────────────────────────────────
   describe('createGroup', () => {
     it('creates group conversation with owner as accepted member', async () => {
       const groupConv = { ...mockConv, type: 'group', name: 'Dev Team' };
@@ -132,7 +136,6 @@ describe('ConversationsService', () => {
     });
   });
 
-  // ── findMyConversations ───────────────────────────────────────────────────
   describe('findMyConversations', () => {
     it('returns accepted conversations ordered by updated_at', async () => {
       const qb = chain('orderBy', [mockConv]);
@@ -145,7 +148,6 @@ describe('ConversationsService', () => {
     });
   });
 
-  // ── findMyRequests ────────────────────────────────────────────────────────
   describe('findMyRequests', () => {
     it('returns pending conversations ordered by created_at', async () => {
       const qb = chain('orderBy', [mockConv]);
@@ -158,21 +160,17 @@ describe('ConversationsService', () => {
     });
   });
 
-  // ── findOne ───────────────────────────────────────────────────────────────
   describe('findOne', () => {
     it('returns conversation when user is a member', async () => {
-      const memberQb = chain('first', { id: 1, status: 'accepted' });
+      const memberQb = chain('first', { id: 1 });
       const convQb = chain('first', mockConv);
       mockKnex.mockReturnValueOnce(memberQb).mockReturnValueOnce(convQb);
 
-      const result = await service.findOne(1, 1);
-
-      expect(result).toEqual(mockConv);
+      expect(await service.findOne(1, 1)).toEqual(mockConv);
     });
 
     it('throws ForbiddenException when user is not a member', async () => {
-      const memberQb = chain('first', undefined);
-      mockKnex.mockReturnValue(memberQb);
+      mockKnex.mockReturnValue(chain('first', undefined));
 
       await expect(service.findOne(1, 99)).rejects.toThrow(ForbiddenException);
     });
@@ -186,21 +184,19 @@ describe('ConversationsService', () => {
     });
   });
 
-  // ── inviteMember ──────────────────────────────────────────────────────────
   describe('inviteMember', () => {
     it('invites a user when requester is owner', async () => {
       const ownerQb = chain('first', { role: 'owner', status: 'accepted' });
       const insertQb = chain('returning', [mockMember]);
       mockKnex.mockReturnValueOnce(ownerQb).mockReturnValueOnce(insertQb);
 
-      const result = await service.inviteMember(1, 1, { userId: 2 });
-
-      expect(result).toEqual(mockMember);
+      expect(await service.inviteMember(1, 1, { userId: 2 })).toEqual(
+        mockMember,
+      );
     });
 
     it('throws ForbiddenException when requester is not owner', async () => {
-      const ownerQb = chain('first', undefined);
-      mockKnex.mockReturnValue(ownerQb);
+      mockKnex.mockReturnValue(chain('first', undefined));
 
       await expect(service.inviteMember(1, 99, { userId: 2 })).rejects.toThrow(
         ForbiddenException,
@@ -208,17 +204,16 @@ describe('ConversationsService', () => {
     });
   });
 
-  // ── updateMyStatus ────────────────────────────────────────────────────────
   describe('updateMyStatus', () => {
     it('updates status to accepted and sets joined_at', async () => {
-      const updatedMember = {
+      const updated = {
         ...mockMember,
         status: 'accepted',
         joined_at: new Date(),
       };
-      const findQb = chain('first', mockMember);
-      const updateQb = chain('returning', [updatedMember]);
-      mockKnex.mockReturnValueOnce(findQb).mockReturnValueOnce(updateQb);
+      mockKnex
+        .mockReturnValueOnce(chain('first', mockMember))
+        .mockReturnValueOnce(chain('returning', [updated]));
 
       const result = await service.updateMyStatus(1, 2, { status: 'accepted' });
 
@@ -227,10 +222,10 @@ describe('ConversationsService', () => {
     });
 
     it('updates status to rejected without setting joined_at', async () => {
-      const updatedMember = { ...mockMember, status: 'rejected' };
-      const findQb = chain('first', mockMember);
-      const updateQb = chain('returning', [updatedMember]);
-      mockKnex.mockReturnValueOnce(findQb).mockReturnValueOnce(updateQb);
+      const updated = { ...mockMember, status: 'rejected' };
+      mockKnex
+        .mockReturnValueOnce(chain('first', mockMember))
+        .mockReturnValueOnce(chain('returning', [updated]));
 
       const result = await service.updateMyStatus(1, 2, { status: 'rejected' });
 
@@ -239,8 +234,7 @@ describe('ConversationsService', () => {
     });
 
     it('throws NotFoundException when membership does not exist', async () => {
-      const findQb = chain('first', undefined);
-      mockKnex.mockReturnValue(findQb);
+      mockKnex.mockReturnValue(chain('first', undefined));
 
       await expect(
         service.updateMyStatus(1, 99, { status: 'accepted' }),
@@ -248,19 +242,17 @@ describe('ConversationsService', () => {
     });
   });
 
-  // ── removeMember ──────────────────────────────────────────────────────────
   describe('removeMember', () => {
     it('removes member when requester is owner', async () => {
-      const ownerQb = chain('first', { role: 'owner', status: 'accepted' });
-      const updateQb = chain('update', 1);
-      mockKnex.mockReturnValueOnce(ownerQb).mockReturnValueOnce(updateQb);
+      mockKnex
+        .mockReturnValueOnce(chain('first', { role: 'owner' }))
+        .mockReturnValueOnce(chain('update', 1));
 
       await expect(service.removeMember(1, 1, 2)).resolves.toBeUndefined();
     });
 
     it('throws ForbiddenException when requester is not owner', async () => {
-      const ownerQb = chain('first', undefined);
-      mockKnex.mockReturnValue(ownerQb);
+      mockKnex.mockReturnValue(chain('first', undefined));
 
       await expect(service.removeMember(1, 99, 2)).rejects.toThrow(
         ForbiddenException,

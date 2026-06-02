@@ -17,12 +17,10 @@ import type { UpdateMemberStatusDto } from './dto/update-member-status.dto.js';
 export class ConversationsService {
   constructor(@Inject(KNEX_TOKEN) private readonly knex: Knex) {}
 
-  // ── DM ──────────────────────────────────────────────────────────────────
   async createDirect(
     initiatorId: number,
     dto: CreateDirectDto,
   ): Promise<Conversation> {
-    // Check if a DM already exists between these two users
     const existing = await this.knex<{ id: number }>(
       'conversation_members as cm1',
     )
@@ -71,7 +69,6 @@ export class ConversationsService {
     });
   }
 
-  // ── Group ────────────────────────────────────────────────────────────────
   async createGroup(
     ownerId: number,
     dto: CreateGroupDto,
@@ -98,7 +95,6 @@ export class ConversationsService {
     });
   }
 
-  // ── My conversations (accepted) ──────────────────────────────────────────
   async findMyConversations(userId: number): Promise<Conversation[]> {
     return this.knex<Conversation>('conversations as c')
       .join('conversation_members as cm', 'cm.conversation_id', 'c.id')
@@ -108,7 +104,6 @@ export class ConversationsService {
       .orderBy('c.updated_at', 'desc');
   }
 
-  // ── My pending requests ──────────────────────────────────────────────────
   async findMyRequests(userId: number): Promise<Conversation[]> {
     return this.knex<Conversation>('conversations as c')
       .join('conversation_members as cm', 'cm.conversation_id', 'c.id')
@@ -118,7 +113,6 @@ export class ConversationsService {
       .orderBy('c.created_at', 'desc');
   }
 
-  // ── Single conversation (must be a member) ───────────────────────────────
   async findOne(conversationId: number, userId: number): Promise<Conversation> {
     await this.assertMember(conversationId, userId);
     const conv = await this.knex<Conversation>('conversations')
@@ -128,7 +122,6 @@ export class ConversationsService {
     return conv;
   }
 
-  // ── Invite to group (owner only) ─────────────────────────────────────────
   async inviteMember(
     conversationId: number,
     requesterId: number,
@@ -149,7 +142,6 @@ export class ConversationsService {
     return member;
   }
 
-  // ── Accept / Reject / Leave ───────────────────────────────────────────────
   async updateMyStatus(
     conversationId: number,
     userId: number,
@@ -176,7 +168,6 @@ export class ConversationsService {
     return updated;
   }
 
-  // ── Remove member (owner only)
   async removeMember(
     conversationId: number,
     requesterId: number,

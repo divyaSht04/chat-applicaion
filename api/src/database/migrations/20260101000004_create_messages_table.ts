@@ -25,7 +25,9 @@ export async function up(knex: Knex): Promise<void> {
   await knex.schema.raw(
     'CREATE INDEX idx_messages_conv_id_desc ON messages (conversation_id, id DESC)',
   );
-  await knex.schema.raw('CREATE INDEX idx_messages_sender ON messages (sender_id)');
+  await knex.schema.raw(
+    'CREATE INDEX idx_messages_sender ON messages (sender_id)',
+  );
 
   // Add the self-referential FK after table creation to avoid circular dependency
   await knex.schema.raw(

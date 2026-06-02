@@ -70,13 +70,13 @@ describe('ConversationsController', () => {
 
   afterEach(() => jest.clearAllMocks());
 
-  it('createDirect delegates to service with user id', async () => {
+  it('createDirect delegates to service', async () => {
     const result = await controller.createDirect(mockUser, { recipientId: 2 });
     expect(service.createDirect).toHaveBeenCalledWith(1, { recipientId: 2 });
     expect(result).toEqual(mockConv);
   });
 
-  it('createGroup delegates to service with user id', async () => {
+  it('createGroup delegates to service', async () => {
     const result = await controller.createGroup(mockUser, { name: 'Dev Team' });
     expect(service.createGroup).toHaveBeenCalledWith(1, { name: 'Dev Team' });
     expect(result.type).toBe('group');
