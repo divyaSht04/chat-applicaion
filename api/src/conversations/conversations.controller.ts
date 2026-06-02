@@ -40,7 +40,11 @@ export class ConversationsController {
     return this.conversationsService.findMyConversations(user.sub);
   }
 
+<<<<<<< feat/message-pagination
   // Declared before /:id to prevent "requests" being parsed as an id param
+=======
+  // Must be declared before /:id to avoid "requests" being parsed as an id
+>>>>>>> dev
   @Get('requests')
   findMyRequests(@CurrentUser() user: JwtPayload) {
     return this.conversationsService.findMyRequests(user.sub);
