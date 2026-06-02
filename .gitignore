@@ -1,10 +1,26 @@
-# Ignore folders and files in the api package
-api/node_modules
-api/dist
-
-# Ignore folders and files in the web package
-web/node_modules
-web/dist
-
+# Dependencies
 node_modules
+api/node_modules
+client/node_modules
+
+# Build output
 dist
+api/dist
+client/dist
+
+# Env files (never commit secrets)
+**/.env
+.env
+
+# Test & coverage
+coverage
+api/coverage
+client/coverage
+client/test-results
+client/playwright-report
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# Misc
+.DS_Store
