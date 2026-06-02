@@ -4,6 +4,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { DatabaseModule } from './database/database.module.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { ConversationsModule } from './conversations/conversations.module.js';
+import { MessagesModule } from './messages/messages.module.js';
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { AuthModule } from './auth/auth.module.js';
     DatabaseModule,
     UsersModule,
     AuthModule,
+    ConversationsModule,
+    MessagesModule,
   ],
 })
 export class AppModule {}
