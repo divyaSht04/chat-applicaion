@@ -6,6 +6,7 @@ import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { ConversationsModule } from './conversations/conversations.module.js';
 import { MessagesModule } from './messages/messages.module.js';
+import { ChatModule } from './chat/chat.module.js';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { MessagesModule } from './messages/messages.module.js';
     AuthModule,
     ConversationsModule,
     MessagesModule,
+    ChatModule,
   ],
 })
 export class AppModule {}
