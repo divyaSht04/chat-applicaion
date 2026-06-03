@@ -31,13 +31,20 @@ const config: Record<string, Knex.Config> = {
     },
   },
   production: {
-    ...base,
+    // Don't spread `base` — override migrations to use compiled JS in dist/
+    client: 'pg',
     connection: {
       host: process.env.DB_HOST,
       port: Number(process.env.DB_PORT ?? 5432),
       user: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
+    },
+    migrations: {
+      // Knex chdirs into the knexfile's folder (/app/dist/) before resolving paths,
+      // so ./src/... resolves correctly to /app/dist/src/database/migrations/
+      directory: './src/database/migrations',
+      loadExtensions: ['.js'],
     },
   },
 };

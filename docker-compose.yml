@@ -1,4 +1,6 @@
 services:
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     environment:
@@ -15,6 +17,44 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # ── NestJS API ───────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .                   # packages/ — gives Dockerfile access to tsconfig.base.json
+      dockerfile: api/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres            # ← service name, not localhost
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: chat_db
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGIN: http://localhost:5173
+      PORT: "3000"
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy   # waits for pg_isready before starting
+    restart: unless-stopped
+
+  # ── React client (nginx) ─────────────────────────────────────────────────────
+  client:
+    build:
+      context: .                   # packages/ — gives Dockerfile access to tsconfig.base.json
+      dockerfile: client/Dockerfile
+      args:
+        # Vite bakes this into the JS bundle at build time.
+        # The browser reaches the API via localhost:3000
+        VITE_API_URL: http://localhost:3000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+    restart: unless-stopped
 
 volumes:
   postgres_data:
