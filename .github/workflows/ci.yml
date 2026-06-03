@@ -7,7 +7,7 @@ on:
     branches: [main, dev]
 
 env:
-  HUSKY: 0   # disable git hooks in CI
+  HUSKY: 0   # husky is installed but hooks must not run in CI
 
 jobs:
   api:
@@ -38,8 +38,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      - run: npm ci
       - run: cd api && npm ci
-      - run: cd api && npx eslint "{src,apps,libs,test}/**/*.ts"   # detect only, no --fix
+
+      - run: cd api && npx eslint "{src,apps,libs,test}/**/*.ts"
       - run: cd api && npm run test
       - run: cd api && npm run test:e2e
 
@@ -51,9 +54,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      - run: npm ci
       - run: cd client && npm ci
+
       - run: cd client && npm run lint
-      - run: cd client && npx vitest run   # explicit run mode, not watch
+      - run: cd client && npx vitest run
 
   docker-push:
     needs: [api, client]
