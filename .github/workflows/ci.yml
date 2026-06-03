@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main, dev]
 
+env:
+  HUSKY: 0   # disable git hooks in CI
+
 jobs:
   api:
     runs-on: ubuntu-latest
@@ -21,29 +24,36 @@ jobs:
         ports:
           - 5432:5432
 
+    env:
+      NODE_ENV: test
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      TEST_DB_NAME: chat_test
+      JWT_SECRET: ci-test-secret
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: cd api && npm ci --no-scripts
-      - run: cd api && npm run lint
+      - run: cd api && npm ci
+      - run: cd api && npx eslint "{src,apps,libs,test}/**/*.ts"   # detect only, no --fix
       - run: cd api && npm run test
       - run: cd api && npm run test:e2e
-        env:
-          NODE_ENV: test
-          DB_HOST: localhost
 
   client:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: cd client && npm ci --no-scripts
+      - run: cd client && npm ci
       - run: cd client && npm run lint
-      - run: cd client && npm run test
+      - run: cd client && npx vitest run   # explicit run mode, not watch
 
   docker-push:
     needs: [api, client]
