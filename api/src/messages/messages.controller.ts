@@ -33,12 +33,17 @@ export class MessagesController {
   }
 
   @Post()
-  createMessage(
+  async createMessage(
     @Param('conversationId', ParseIntPipe) conversationId: number,
     @CurrentUser() user: JwtPayload,
     @Body() dto: CreateMessageDto,
   ) {
-    return this.messagesService.createMessage(conversationId, user.sub, dto);
+    const { message } = await this.messagesService.createMessage(
+      conversationId,
+      user.sub,
+      dto,
+    );
+    return message;
   }
 
   @Post('read')

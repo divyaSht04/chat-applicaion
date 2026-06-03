@@ -41,7 +41,9 @@ describe('MessagesController', () => {
           provide: MessagesService,
           useValue: {
             getMessages: jest.fn().mockResolvedValue(mockPage),
-            createMessage: jest.fn().mockResolvedValue(mockMsg),
+            createMessage: jest
+              .fn()
+              .mockResolvedValue({ message: mockMsg, reactivatedUserIds: [] }),
             markRead: jest.fn().mockResolvedValue(undefined),
           },
         },

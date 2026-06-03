@@ -14,6 +14,11 @@ export interface MessagePage {
   hasMore: boolean;
 }
 
+export interface CreateMessageResult {
+  message: MessageResponse;
+  reactivatedUserIds: number[];
+}
+
 @Injectable()
 export class MessagesService {
   constructor(@Inject(KNEX_TOKEN) private readonly knex: Knex) {}
@@ -23,7 +28,7 @@ export class MessagesService {
     userId: number,
     query: CursorPageDto,
   ): Promise<MessagePage> {
-    await this.assertMember(conversationId, userId);
+    await this.assertMemberOrPending(conversationId, userId);
 
     const limit = query.limit ?? DEFAULT_LIMIT;
 
@@ -45,7 +50,6 @@ export class MessagesService {
       .select(
         'm.*',
         'u.username',
-        'u.display_name',
         'u.avatar_url',
         this.knex.raw('COUNT(mr.user_id)::int AS read_count'),
       )
@@ -63,8 +67,25 @@ export class MessagesService {
     conversationId: number,
     senderId: number,
     dto: CreateMessageDto,
-  ): Promise<MessageResponse> {
+  ): Promise<CreateMessageResult> {
     await this.assertMember(conversationId, senderId);
+
+    // If a pending recipient exists, the initiator may only send one message
+    const pendingMember = await this.knex<{ id: number }>(
+      'conversation_members',
+    )
+      .where({ conversation_id: conversationId, status: 'pending' })
+      .first<{ id: number }>();
+    if (pendingMember) {
+      const firstSent = await this.knex<{ id: number }>('messages')
+        .where({ conversation_id: conversationId, sender_id: senderId })
+        .first<{ id: number }>();
+      if (firstSent) {
+        throw new ForbiddenException(
+          'Waiting for the recipient to accept your message request',
+        );
+      }
+    }
 
     const [msg] = (await this.knex('messages')
       .insert({
@@ -80,7 +101,28 @@ export class MessagesService {
       .where('id', conversationId)
       .update({ updated_at: this.knex.fn.now() });
 
-    return this.enrichMessage(msg);
+    // Re-activate members who previously left ("soft delete" behaviour — new activity
+    // brings the conversation back for the user who deleted it)
+    const leftMembers = await this.knex<{ user_id: number }>(
+      'conversation_members',
+    )
+      .where({ conversation_id: conversationId, status: 'left' })
+      .select('user_id');
+
+    if (leftMembers.length > 0) {
+      await this.knex('conversation_members')
+        .where({ conversation_id: conversationId })
+        .whereIn(
+          'user_id',
+          leftMembers.map((m) => m.user_id),
+        )
+        .update({ status: 'accepted', joined_at: this.knex.fn.now() });
+    }
+
+    return {
+      message: await this.enrichMessage(msg),
+      reactivatedUserIds: leftMembers.map((m) => m.user_id),
+    };
   }
 
   async markRead(
@@ -124,7 +166,6 @@ export class MessagesService {
       .select(
         'm.*',
         'u.username',
-        'u.display_name',
         'u.avatar_url',
         this.knex.raw('COUNT(mr.user_id)::int AS read_count'),
       )) as [MessageResponse];
@@ -141,6 +182,18 @@ export class MessagesService {
         user_id: userId,
         status: 'accepted',
       })
+      .first<{ id: number }>();
+    if (!member)
+      throw new ForbiddenException('Not a member of this conversation');
+  }
+
+  private async assertMemberOrPending(
+    conversationId: number,
+    userId: number,
+  ): Promise<void> {
+    const member = await this.knex<{ id: number }>('conversation_members')
+      .where({ conversation_id: conversationId, user_id: userId })
+      .whereIn('status', ['accepted', 'pending'])
       .first<{ id: number }>();
     if (!member)
       throw new ForbiddenException('Not a member of this conversation');

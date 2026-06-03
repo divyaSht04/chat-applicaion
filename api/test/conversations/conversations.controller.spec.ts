@@ -1,12 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConversationsController } from '../../src/conversations/conversations.controller';
 import { ConversationsService } from '../../src/conversations/conversations.service';
+import { ChatGateway } from '../../src/chat/chat.gateway';
 import { JwtAuthGuard } from '../../src/auth/guards/jwt-auth.guard';
 import type { JwtPayload } from '../../src/auth/strategies/jwt.strategy';
 
 describe('ConversationsController', () => {
   let controller: ConversationsController;
   let service: jest.Mocked<ConversationsService>;
+  let gateway: jest.Mocked<ChatGateway>;
 
   const mockUser: JwtPayload = {
     sub: 1,
@@ -51,11 +53,24 @@ describe('ConversationsController', () => {
             findMyConversations: jest.fn().mockResolvedValue([mockConv]),
             findMyRequests: jest.fn().mockResolvedValue([mockConv]),
             findOne: jest.fn().mockResolvedValue(mockConv),
+            getMembers: jest.fn().mockResolvedValue([]),
             inviteMember: jest.fn().mockResolvedValue(mockMember),
+            notifyMemberJoined: jest.fn().mockResolvedValue(null),
             updateMyStatus: jest
               .fn()
               .mockResolvedValue({ ...mockMember, status: 'accepted' }),
-            removeMember: jest.fn().mockResolvedValue(undefined),
+            leaveConversation: jest.fn().mockResolvedValue(null),
+            removeMember: jest.fn().mockResolvedValue(null),
+            deleteGroup: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: ChatGateway,
+          useValue: {
+            notifyNewConversation: jest.fn(),
+            notifyConversationDeleted: jest.fn(),
+            broadcastMessage: jest.fn(),
+            notifyMemberRemoved: jest.fn(),
           },
         },
       ],
@@ -66,13 +81,15 @@ describe('ConversationsController', () => {
 
     controller = module.get<ConversationsController>(ConversationsController);
     service = module.get(ConversationsService);
+    gateway = module.get(ChatGateway);
   });
 
   afterEach(() => jest.clearAllMocks());
 
-  it('createDirect delegates to service', async () => {
+  it('createDirect delegates to service and notifies recipient', async () => {
     const result = await controller.createDirect(mockUser, { recipientId: 2 });
     expect(service.createDirect).toHaveBeenCalledWith(1, { recipientId: 2 });
+    expect(gateway.notifyNewConversation).toHaveBeenCalledWith(2, mockConv.id);
     expect(result).toEqual(mockConv);
   });
 
@@ -100,9 +117,11 @@ describe('ConversationsController', () => {
     expect(result).toEqual(mockConv);
   });
 
-  it('inviteMember delegates to service', async () => {
+  it('inviteMember delegates to service, notifies invited user, and broadcasts join message', async () => {
     const result = await controller.inviteMember(1, mockUser, { userId: 2 });
     expect(service.inviteMember).toHaveBeenCalledWith(1, 1, { userId: 2 });
+    expect(gateway.notifyNewConversation).toHaveBeenCalledWith(2, 1);
+    expect(service.notifyMemberJoined).toHaveBeenCalledWith(1, 2);
     expect(result).toEqual(mockMember);
   });
 
@@ -116,9 +135,27 @@ describe('ConversationsController', () => {
     expect(result.status).toBe('accepted');
   });
 
-  it('removeMember delegates to service', async () => {
+  it('getMembers delegates to service', async () => {
+    const result = await controller.getMembers(1, mockUser);
+    expect(service.getMembers).toHaveBeenCalledWith(1, 1);
+    expect(result).toEqual([]);
+  });
+
+  it('leaveConversation delegates to service', async () => {
+    await controller.leaveConversation(1, mockUser);
+    expect(service.leaveConversation).toHaveBeenCalledWith(1, 1);
+  });
+
+  it('removeMember delegates to service and notifies removed member', async () => {
     await controller.removeMember(1, 2, mockUser);
     expect(service.removeMember).toHaveBeenCalledWith(1, 1, 2);
+    expect(gateway.notifyMemberRemoved).toHaveBeenCalledWith(2, 1);
+  });
+
+  it('deleteGroup delegates to service and notifies room', async () => {
+    await controller.deleteGroup(1, mockUser);
+    expect(service.deleteGroup).toHaveBeenCalledWith(1, 1);
+    expect(gateway.notifyConversationDeleted).toHaveBeenCalledWith(1);
   });
 
   it('covers decorator metadata Object branch when dependencies are unavailable at load time', () => {
