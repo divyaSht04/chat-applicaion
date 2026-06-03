@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: cd api && npm install
+      - run: cd api && npm ci --no-scripts
       - run: cd api && npm run lint
       - run: cd api && npm run test
       - run: cd api && npm run test:e2e
@@ -41,7 +41,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: cd client && npm install
+      - run: cd client && npm ci --no-scripts
       - run: cd client && npm run lint
       - run: cd client && npm run test
 
