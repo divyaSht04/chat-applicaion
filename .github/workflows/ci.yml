@@ -66,13 +66,13 @@ jobs:
       - uses: docker/build-push-action@v5
         with:
           context: .
-          dockerfile: api/Dockerfile
+          file: api/Dockerfile
           push: true
           tags: icely77/chat-application-be:latest
 
       - uses: docker/build-push-action@v5
         with:
           context: .
-          dockerfile: client/Dockerfile
+          file: client/Dockerfile
           push: true
           tags: icely77/chat-application-fe:latest
