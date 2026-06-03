@@ -2,12 +2,14 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import { ChatGateway } from '../../src/chat/chat.gateway';
 import { MessagesService } from '../../src/messages/messages.service';
+import { KNEX_TOKEN } from '../../src/database/database.providers';
 import type { JwtPayload } from '../../src/auth/strategies/jwt.strategy';
 
 describe('ChatGateway', () => {
   let gateway: ChatGateway;
   let jwtService: jest.Mocked<JwtService>;
   let messagesService: jest.Mocked<MessagesService>;
+  let mockKnex: jest.Mock;
 
   const fakeUser: JwtPayload = {
     sub: 1,
@@ -27,7 +29,6 @@ describe('ChatGateway', () => {
     deleted_at: null,
     created_at: new Date(),
     username: 'alice',
-    display_name: null,
     avatar_url: null,
     read_count: 0,
   };
@@ -43,21 +44,28 @@ describe('ChatGateway', () => {
     };
   }
 
+  // Build a chainable Knex query builder stub (supports autoJoinRooms which uses where+whereIn+select)
+  function makeKnexChain(resolveWith: unknown) {
+    const qb: Record<string, jest.Mock> = {
+      where: jest.fn().mockReturnThis(),
+      whereIn: jest.fn().mockReturnThis(),
+      select: jest.fn().mockResolvedValue(resolveWith),
+    };
+    return qb;
+  }
+
   beforeEach(async () => {
+    mockKnex = jest.fn();
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ChatGateway,
-        {
-          provide: JwtService,
-          useValue: { verify: jest.fn() },
-        },
+        { provide: JwtService, useValue: { verify: jest.fn() } },
         {
           provide: MessagesService,
-          useValue: {
-            getMessages: jest.fn(),
-            createMessage: jest.fn(),
-          },
+          useValue: { getMessages: jest.fn(), createMessage: jest.fn() },
         },
+        { provide: KNEX_TOKEN, useValue: mockKnex },
       ],
     }).compile();
 
@@ -67,14 +75,37 @@ describe('ChatGateway', () => {
   });
 
   describe('handleConnection', () => {
-    it('attaches user to client.data on valid token', () => {
+    it('attaches user and auto-joins rooms on valid token', async () => {
       jwtService.verify.mockReturnValue(fakeUser);
+      mockKnex.mockReturnValue(
+        makeKnexChain([{ conversation_id: 10 }, { conversation_id: 20 }]),
+      );
       const client = makeSocket('valid-token');
 
       gateway.handleConnection(client as never);
+      // autoJoinRooms is async — wait for the microtask queue
+      await Promise.resolve();
+      await Promise.resolve();
 
       expect(client.data['user']).toEqual(fakeUser);
       expect(client.disconnect).not.toHaveBeenCalled();
+      // First join: personal user room; second join: conversation rooms
+      expect(client.join).toHaveBeenCalledWith('user:1');
+      expect(client.join).toHaveBeenCalledWith(['room:10', 'room:20']);
+    });
+
+    it('does not join conversation rooms when user has no conversations', async () => {
+      jwtService.verify.mockReturnValue(fakeUser);
+      mockKnex.mockReturnValue(makeKnexChain([]));
+      const client = makeSocket('valid-token');
+
+      gateway.handleConnection(client as never);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Only the personal user room is joined; no conversation rooms
+      expect(client.join).toHaveBeenCalledWith('user:1');
+      expect(client.join).toHaveBeenCalledTimes(1);
     });
 
     it('emits error and disconnects on invalid token', () => {
@@ -110,7 +141,7 @@ describe('ChatGateway', () => {
   });
 
   describe('handleJoinRoom', () => {
-    it('joins room and emits messageHistory', async () => {
+    it('joins room and emits messageHistory with hasMore', async () => {
       messagesService.getMessages.mockResolvedValue({
         messages: [fakeMessage],
         nextCursor: null,
@@ -125,7 +156,10 @@ describe('ChatGateway', () => {
       expect(messagesService.getMessages).toHaveBeenCalledWith(10, 1, {
         limit: 50,
       });
-      expect(client.emit).toHaveBeenCalledWith('messageHistory', [fakeMessage]);
+      expect(client.emit).toHaveBeenCalledWith('messageHistory', {
+        messages: [fakeMessage],
+        hasMore: false,
+      });
     });
 
     it('emits error when getMessages throws', async () => {
@@ -137,6 +171,47 @@ describe('ChatGateway', () => {
 
       expect(client.emit).toHaveBeenCalledWith('error', {
         message: 'Cannot join room',
+      });
+    });
+  });
+
+  describe('handleLoadMoreMessages', () => {
+    it('emits olderMessages with the requested page', async () => {
+      messagesService.getMessages.mockResolvedValue({
+        messages: [fakeMessage],
+        nextCursor: 5,
+        hasMore: true,
+      });
+      const client = makeSocket();
+      client.data['user'] = fakeUser;
+
+      await gateway.handleLoadMoreMessages(
+        { roomId: 10, before: 20 },
+        client as never,
+      );
+
+      expect(messagesService.getMessages).toHaveBeenCalledWith(10, 1, {
+        limit: 50,
+        before: 20,
+      });
+      expect(client.emit).toHaveBeenCalledWith('olderMessages', {
+        messages: [fakeMessage],
+        hasMore: true,
+      });
+    });
+
+    it('emits error when getMessages throws', async () => {
+      messagesService.getMessages.mockRejectedValue(new Error('forbidden'));
+      const client = makeSocket();
+      client.data['user'] = fakeUser;
+
+      await gateway.handleLoadMoreMessages(
+        { roomId: 10, before: 20 },
+        client as never,
+      );
+
+      expect(client.emit).toHaveBeenCalledWith('error', {
+        message: 'Failed to load messages',
       });
     });
   });
@@ -153,9 +228,15 @@ describe('ChatGateway', () => {
 
   describe('handleSendMessage', () => {
     it('persists message and broadcasts newMessage to room', async () => {
-      messagesService.createMessage.mockResolvedValue(fakeMessage);
+      messagesService.createMessage.mockResolvedValue({
+        message: fakeMessage,
+        reactivatedUserIds: [],
+      });
       const mockTo = { emit: jest.fn() };
-      gateway.server = { to: jest.fn().mockReturnValue(mockTo) } as never;
+      gateway.server = {
+        to: jest.fn().mockReturnValue(mockTo),
+        in: jest.fn().mockReturnValue({ socketsJoin: jest.fn() }),
+      } as never;
       const client = makeSocket();
       client.data['user'] = fakeUser;
 
@@ -169,6 +250,31 @@ describe('ChatGateway', () => {
       });
       expect(gateway.server.to).toHaveBeenCalledWith('room:10');
       expect(mockTo.emit).toHaveBeenCalledWith('newMessage', fakeMessage);
+    });
+
+    it('notifies reactivated users when they had previously deleted the conversation', async () => {
+      messagesService.createMessage.mockResolvedValue({
+        message: fakeMessage,
+        reactivatedUserIds: [99],
+      });
+      const mockTo = { emit: jest.fn() };
+      const mockIn = { socketsJoin: jest.fn() };
+      gateway.server = {
+        to: jest.fn().mockReturnValue(mockTo),
+        in: jest.fn().mockReturnValue(mockIn),
+      } as never;
+      const client = makeSocket();
+      client.data['user'] = fakeUser;
+
+      await gateway.handleSendMessage(
+        { roomId: 10, content: 'hey' },
+        client as never,
+      );
+
+      // notifyNewConversation emits to 'user:99'
+      expect(gateway.server.to).toHaveBeenCalledWith(
+        expect.stringContaining('user:99'),
+      );
     });
 
     it('emits error when createMessage throws', async () => {

@@ -14,7 +14,6 @@ export interface Message {
 
 export interface MessageResponse extends Message {
   username: string;
-  display_name: string | null;
   avatar_url: string | null;
   read_count: number;
 }

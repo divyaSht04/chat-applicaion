@@ -11,5 +11,6 @@ import { MessagesModule } from '../messages/messages.module.js';
     }),
   ],
   providers: [ChatGateway],
+  exports: [ChatGateway],
 })
 export class ChatModule {}

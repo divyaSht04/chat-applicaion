@@ -119,7 +119,7 @@ describe('MessagesService', () => {
       expect(msgsQb.where).toHaveBeenCalledWith('m.id', '<', 100);
     });
 
-    it('throws ForbiddenException when user is not an accepted member', async () => {
+    it('throws ForbiddenException when user is not a member at all', async () => {
       const memberQb = chain('first', undefined);
       mockKnex.mockReturnValue(memberQb);
 
@@ -127,35 +127,76 @@ describe('MessagesService', () => {
         ForbiddenException,
       );
     });
+
+    it('allows pending members to read messages', async () => {
+      const memberQb = chain('first', { id: 1, status: 'pending' });
+      const msgsQb = chain('limit', [mockMsg]);
+      mockKnex.mockReturnValueOnce(memberQb).mockReturnValueOnce(msgsQb);
+
+      const result = await service.getMessages(1, 2, {});
+
+      expect(result.messages).toHaveLength(1);
+    });
   });
 
   // ── createMessage ─────────────────────────────────────────────────────────
   describe('createMessage', () => {
-    it('inserts message and returns enriched response', async () => {
+    it('inserts message and returns enriched response with empty reactivatedUserIds', async () => {
       const memberQb = chain('first', { id: 1 });
+      const noPendingQb = chain('first', undefined);
       const insertQb = chain('returning', [{ id: 10 }]);
-      const updateQb = chain('update', 1);
+      const updateConvQb = chain('update', 1);
+      const noLeftQb = chain('select', []); // no users who left
       const enrichQb = chain('select', [mockMsg]);
       mockKnex
         .mockReturnValueOnce(memberQb)
+        .mockReturnValueOnce(noPendingQb)
         .mockReturnValueOnce(insertQb)
-        .mockReturnValueOnce(updateQb)
+        .mockReturnValueOnce(updateConvQb)
+        .mockReturnValueOnce(noLeftQb)
         .mockReturnValueOnce(enrichQb);
 
       const result = await service.createMessage(1, 1, { content: 'hello' });
 
-      expect(result).toEqual(mockMsg);
+      expect(result.message).toEqual(mockMsg);
+      expect(result.reactivatedUserIds).toEqual([]);
+    });
+
+    it('re-activates left members and returns their ids', async () => {
+      const memberQb = chain('first', { id: 1 });
+      const noPendingQb = chain('first', undefined);
+      const insertQb = chain('returning', [{ id: 10 }]);
+      const updateConvQb = chain('update', 1);
+      const leftQb = chain('select', [{ user_id: 5 }]); // user 5 had left
+      const reactivateQb = chain('update', 1);
+      const enrichQb = chain('select', [mockMsg]);
+      mockKnex
+        .mockReturnValueOnce(memberQb)
+        .mockReturnValueOnce(noPendingQb)
+        .mockReturnValueOnce(insertQb)
+        .mockReturnValueOnce(updateConvQb)
+        .mockReturnValueOnce(leftQb)
+        .mockReturnValueOnce(reactivateQb)
+        .mockReturnValueOnce(enrichQb);
+
+      const result = await service.createMessage(1, 1, { content: 'hello' });
+
+      expect(result.reactivatedUserIds).toEqual([5]);
     });
 
     it('passes replyToId when provided', async () => {
       const memberQb = chain('first', { id: 1 });
+      const noPendingQb = chain('first', undefined);
       const insertQb = chain('returning', [{ id: 10 }]);
-      const updateQb = chain('update', 1);
+      const updateConvQb = chain('update', 1);
+      const noLeftQb = chain('select', []);
       const enrichQb = chain('select', [mockMsg]);
       mockKnex
         .mockReturnValueOnce(memberQb)
+        .mockReturnValueOnce(noPendingQb)
         .mockReturnValueOnce(insertQb)
-        .mockReturnValueOnce(updateQb)
+        .mockReturnValueOnce(updateConvQb)
+        .mockReturnValueOnce(noLeftQb)
         .mockReturnValueOnce(enrichQb);
 
       await service.createMessage(1, 1, { content: 'reply', replyToId: 5 });
@@ -163,6 +204,43 @@ describe('MessagesService', () => {
       expect(insertQb.insert).toHaveBeenCalledWith(
         expect.objectContaining({ reply_to_id: 5 }),
       );
+    });
+
+    it('allows first message when recipient is pending', async () => {
+      const memberQb = chain('first', { id: 1 });
+      const pendingQb = chain('first', { id: 2, status: 'pending' });
+      const noSentQb = chain('first', undefined);
+      const insertQb = chain('returning', [{ id: 10 }]);
+      const updateConvQb = chain('update', 1);
+      const noLeftQb = chain('select', []);
+      const enrichQb = chain('select', [mockMsg]);
+      mockKnex
+        .mockReturnValueOnce(memberQb)
+        .mockReturnValueOnce(pendingQb)
+        .mockReturnValueOnce(noSentQb)
+        .mockReturnValueOnce(insertQb)
+        .mockReturnValueOnce(updateConvQb)
+        .mockReturnValueOnce(noLeftQb)
+        .mockReturnValueOnce(enrichQb);
+
+      const result = await service.createMessage(1, 1, {
+        content: 'first hello',
+      });
+      expect(result.message).toEqual(mockMsg);
+    });
+
+    it('blocks second message when recipient has not accepted', async () => {
+      const memberQb = chain('first', { id: 1 });
+      const pendingQb = chain('first', { id: 2, status: 'pending' });
+      const alreadySentQb = chain('first', { id: 5 });
+      mockKnex
+        .mockReturnValueOnce(memberQb)
+        .mockReturnValueOnce(pendingQb)
+        .mockReturnValueOnce(alreadySentQb);
+
+      await expect(
+        service.createMessage(1, 1, { content: 'another message' }),
+      ).rejects.toThrow(ForbiddenException);
     });
 
     it('throws ForbiddenException when user is not a member', async () => {

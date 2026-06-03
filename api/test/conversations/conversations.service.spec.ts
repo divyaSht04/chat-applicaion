@@ -41,14 +41,20 @@ describe('ConversationsService', () => {
       whereIn: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
+      orderByRaw: jest.fn().mockReturnThis(),
       insert: jest.fn().mockReturnThis(),
+      onConflict: jest.fn().mockReturnThis(),
+      merge: jest.fn().mockReturnThis(),
       update: jest.fn().mockReturnThis(),
       returning: jest.fn().mockReturnThis(),
+      delete: jest.fn().mockReturnThis(),
       first: jest.fn().mockResolvedValue(undefined),
     };
     qb[terminal] = jest.fn().mockResolvedValue(value);
     return qb;
   }
+
+  const rawStub = jest.fn().mockReturnValue('(raw)');
 
   beforeEach(async () => {
     const base = jest.fn();
@@ -56,6 +62,7 @@ describe('ConversationsService', () => {
     Object.assign(base, {
       transaction: trxFn,
       fn: { now: jest.fn().mockReturnValue('NOW()') },
+      raw: rawStub,
     });
     mockKnex = base as KnexMock;
 
@@ -72,10 +79,14 @@ describe('ConversationsService', () => {
   afterEach(() => jest.clearAllMocks());
 
   describe('createDirect', () => {
-    it('returns existing conversation when DM already exists', async () => {
+    it('returns existing conversation and re-activates any left members', async () => {
       const checkQb = chain('first', { id: 1 });
+      const reactivateQb = chain('update', 1);
       const convQb = chain('first', mockConv);
-      mockKnex.mockReturnValueOnce(checkQb).mockReturnValueOnce(convQb);
+      mockKnex
+        .mockReturnValueOnce(checkQb)
+        .mockReturnValueOnce(reactivateQb)
+        .mockReturnValueOnce(convQb);
 
       const result = await service.createDirect(1, { recipientId: 2 });
 
@@ -137,14 +148,17 @@ describe('ConversationsService', () => {
   });
 
   describe('findMyConversations', () => {
-    it('returns accepted conversations ordered by updated_at', async () => {
+    it('returns accepted and pending conversations ordered by updated_at', async () => {
       const qb = chain('orderBy', [mockConv]);
       mockKnex.mockReturnValue(qb);
 
       const result = await service.findMyConversations(1);
 
       expect(result).toEqual([mockConv]);
-      expect(qb.where).toHaveBeenCalledWith('cm.status', 'accepted');
+      expect(qb.whereIn).toHaveBeenCalledWith('cm.status', [
+        'accepted',
+        'pending',
+      ]);
     });
   });
 
@@ -242,19 +256,111 @@ describe('ConversationsService', () => {
     });
   });
 
-  describe('removeMember', () => {
-    it('removes member when requester is owner', async () => {
+  describe('leaveConversation', () => {
+    it('sets status to left and returns null for direct conversations', async () => {
       mockKnex
-        .mockReturnValueOnce(chain('first', { role: 'owner' }))
-        .mockReturnValueOnce(chain('update', 1));
+        .mockReturnValueOnce(chain('first', mockMember)) // member check
+        .mockReturnValueOnce(chain('update', 1)) // status update
+        .mockReturnValueOnce(chain('first', mockConv)); // conv type check (direct)
 
-      await expect(service.removeMember(1, 1, 2)).resolves.toBeUndefined();
+      await expect(service.leaveConversation(1, 2)).resolves.toBeNull();
+    });
+
+    it('throws NotFoundException when membership does not exist', async () => {
+      mockKnex.mockReturnValue(chain('first', undefined));
+
+      await expect(service.leaveConversation(1, 99)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('deleteGroup', () => {
+    const groupConv = { ...mockConv, type: 'group' };
+
+    it('deletes group when user is owner', async () => {
+      mockKnex
+        .mockReturnValueOnce(
+          chain('first', { role: 'owner', status: 'accepted' }),
+        ) // assertOwner
+        .mockReturnValueOnce(chain('first', groupConv)) // fetch conv
+        .mockReturnValueOnce(chain('delete', 1)); // delete
+
+      await expect(service.deleteGroup(1, 1)).resolves.toBeUndefined();
+    });
+
+    it('throws ForbiddenException when requester is not owner', async () => {
+      mockKnex.mockReturnValue(chain('first', undefined));
+
+      await expect(service.deleteGroup(1, 99)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('throws ForbiddenException when conversation is not a group', async () => {
+      const directConv = { ...mockConv, type: 'direct' };
+      mockKnex
+        .mockReturnValueOnce(
+          chain('first', { role: 'owner', status: 'accepted' }),
+        )
+        .mockReturnValueOnce(chain('first', directConv));
+
+      await expect(service.deleteGroup(1, 1)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('throws NotFoundException when conversation does not exist', async () => {
+      mockKnex
+        .mockReturnValueOnce(
+          chain('first', { role: 'owner', status: 'accepted' }),
+        )
+        .mockReturnValueOnce(chain('first', undefined));
+
+      await expect(service.deleteGroup(1, 1)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('removeMember', () => {
+    it('removes member and returns null for direct conversations', async () => {
+      mockKnex
+        .mockReturnValueOnce(
+          chain('first', { role: 'owner', status: 'accepted' }),
+        ) // assertOwner
+        .mockReturnValueOnce(chain('update', 1)) // status update
+        .mockReturnValueOnce(chain('first', mockConv)); // conv type (direct)
+
+      await expect(service.removeMember(1, 1, 2)).resolves.toBeNull();
     });
 
     it('throws ForbiddenException when requester is not owner', async () => {
       mockKnex.mockReturnValue(chain('first', undefined));
 
       await expect(service.removeMember(1, 99, 2)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+  });
+
+  describe('getMembers', () => {
+    it('returns accepted members with user info', async () => {
+      const memberQb = chain('first', { id: 1 }); // assertMember
+      const membersQb = chain('orderBy', []);
+      Object.assign(membersQb, { orderByRaw: jest.fn().mockReturnThis() });
+      mockKnex.mockReturnValueOnce(memberQb).mockReturnValueOnce(membersQb);
+
+      const result = await service.getMembers(1, 1);
+
+      expect(result).toEqual([]);
+      expect(membersQb.whereIn).toHaveBeenCalledWith('cm.status', ['accepted']);
+    });
+
+    it('throws ForbiddenException when user is not a member', async () => {
+      mockKnex.mockReturnValue(chain('first', undefined));
+
+      await expect(service.getMembers(1, 99)).rejects.toThrow(
         ForbiddenException,
       );
     });
