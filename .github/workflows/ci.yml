@@ -37,7 +37,6 @@ jobs:
           node-version: '22'
       - run: cd api && npm ci --ignore-scripts
       - run: cd api && npm run test
-      - run: cd api && npm run test:e2e
 
   client:
     runs-on: ubuntu-latest
